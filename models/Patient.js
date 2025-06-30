@@ -15,6 +15,7 @@ const patientSchema = new mongoose.Schema({
   procedure: { type: String },
   appointmentDate: { type: String, required: true },
   appointmentTime: { type: String, required: true },
+  serialNumber: { type: String },
   image: { type: String, required: false },
 });
 

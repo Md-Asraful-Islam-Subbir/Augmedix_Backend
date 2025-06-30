@@ -1,17 +1,52 @@
 import express from "express";
 import Patient from "../models/Patient.js";
 import axios from "axios";
-
+import nodemailer from "nodemailer";
+import dotenv from 'dotenv';
+dotenv.config();
 const router = express.Router();
 
 router.post("/patients", async (req, res) => {
   try {
     const patient = new Patient(req.body);
     await patient.save();
-    res.status(201).json({ message: "Patient added successfully!", patient });
+
+   const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 587, // 🔁 Use 587 instead of 465
+  secure: false, // 🔁 false for STARTTLS
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+    const mailOptions = {
+      from: `"Augmedix" <${process.env.EMAIL_USER}>`,
+      to: patient.email,
+      subject: "Appointment Confirmation",
+      html: `
+        <h3>Hi ${patient.firstName} ${patient.lastName},</h3>
+        <p>Your appointment has been confirmed with the following details:</p>
+        <ul>
+          <li><strong>Date:</strong> ${patient.appointmentDate}</li>
+          <li><strong>Time:</strong> ${patient.appointmentTime}</li>
+          <li><strong>Doctor:</strong> ${patient.doctor}</li>
+          <li><strong>Department:</strong> ${patient.department}</li>
+          <li><strong>Procedure:</strong> ${patient.procedure}</li>
+          <li><strong>Serial Number:</strong> ${patient.serialNumber || "Not assigned"}</li>
+        </ul>
+        <p>Thank you for booking with us.</p>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log("Confirmation email sent to", patient.email);
+
+    res.status(201).json({ message: "Patient added and email sent!", patient });
   } catch (error) {
-    res.status(500).json({ error: "Failed to add patient." });
-    console.log(error)
+    console.error("Error:", error);
+    res.status(500).json({ error: "Failed to add patient or send email." });
   }
 });
 router.get("/patients", async (req, res) => {
