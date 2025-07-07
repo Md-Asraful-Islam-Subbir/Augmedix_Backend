@@ -22,7 +22,7 @@ router.post("/patients", async (req, res) => {
 });
 
     const mailOptions = {
-      from: `"Augmedix" <${process.env.EMAIL_USER}>`,
+      from: `"ClinixNote" <${process.env.EMAIL_USER}>`,
       to: patient.email,
       subject: "Appointment Confirmation",
       html: `
