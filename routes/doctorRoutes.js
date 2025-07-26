@@ -14,6 +14,16 @@ router.get("/doctors", async (req, res) => {
         res.status(500).json({ message: "Error fetching doctors", error });
     }
 });
+router.get("/doctorsforappointment", async (req, res) => {
+  try {
+    const doctors = await User.find({ role: "Doctor", status: "Approved" }).select("name specialization email");
+    res.json(doctors);
+  } catch (error) {
+    console.error("Error fetching doctors:", error);
+    res.status(500).json({ error: "Failed to fetch doctors" });
+  }
+});
+
 router.post('/doctor/application', async (req, res) => {
   const { name, email, specialization } = req.body;
 
