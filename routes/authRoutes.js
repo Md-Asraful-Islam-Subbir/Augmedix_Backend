@@ -267,7 +267,7 @@ router.post("/admin/add-doctor", async (req, res) => {
 });
 
 // Fetch Logged-In Doctor's Information
-router.get("/doctor/me", async (req, res) => {
+router.get("/me", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -280,7 +280,7 @@ router.get("/doctor/me", async (req, res) => {
     if (!doctor || doctor.role !== "Doctor") {
       return res.status(403).json({ message: "Access denied" });
     }
-
+console.log(doctor);
     res.json(doctor); // Return doctor info (name, email, etc.)
   } catch (error) {
     console.error(error);

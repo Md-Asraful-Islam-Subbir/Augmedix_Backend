@@ -26,6 +26,11 @@ const quickAppointmentSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+     status: {
+      type: String,
+      enum: ['Pending', 'Confirmed', 'Cancelled'],
+      default: 'Pending',
+    },
   },
   { timestamps: true }
 );

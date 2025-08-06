@@ -4,7 +4,12 @@ import crypto from "crypto";
 const router = express.Router();
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
-
+import moment from 'moment';
+import mongoose from 'mongoose';
+import QuickAppointment from '../models/QuickAppointment.js';
+import DoctorSchedule from '../models/DoctorSchedule.js';
+import TimeSlot from '../models/TimeSlot.js';
+import authMiddleware from "../middleware/authMiddleware.js";
 // API to get all doctors (users with role "Client")
 router.get("/doctors", async (req, res) => {
     try {
@@ -16,7 +21,7 @@ router.get("/doctors", async (req, res) => {
 });
 router.get("/doctorsforappointment", async (req, res) => {
   try {
-    const doctors = await User.find({ role: "Doctor", status: "Approved" }).select("name specialization email");
+    const doctors = await User.find({ role: "Doctor", status: "Approved" }).select("_id name specialization email");
     res.json(doctors);
   } catch (error) {
     console.error("Error fetching doctors:", error);
@@ -126,5 +131,238 @@ router.post('/doctor/decline/:id', async (req, res) => {
   }
 });
 
+router.post('/schedule',authMiddleware, async (req, res) => {
+  try {
+    const { days, slotDuration, validFrom, validTo } = req.body;
+const doctorId=req.user;
+    if (!doctorId) {
+      return res.status(400).json({ error: "Missing doctorId" });
+    }
+
+    const newSchedule = new DoctorSchedule({
+      doctorId,
+      days,
+      slotDuration,
+      validFrom,
+      validTo
+    });
+
+    await newSchedule.save();
+    await generateSlots(newSchedule,doctorId);
+
+    res.status(201).json({ message: 'Schedule saved & slots generated!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/generate-slots', authMiddleware, async (req, res) => {
+  try {
+    const { scheduleId } = req.body;
+
+    const schedule = await DoctorSchedule.findById(scheduleId);
+    if (!schedule) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+
+    const { doctorId, days, slotDuration, validFrom, validTo } = schedule;
+
+    // Remove existing slots for this schedule
+    await TimeSlot.deleteMany({
+      doctorId,
+      date: { $gte: validFrom, $lte: validTo }
+    });
+
+    const slotsToInsert = [];
+
+    for (let d = new Date(validFrom); d <= validTo; d.setDate(d.getDate() + 1)) {
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+
+      if (!days.includes(dayName)) continue;
+
+      const dayDate = new Date(d);
+      dayDate.setHours(0, 0, 0, 0); // Set to midnight for consistency
+
+      // Parse start and end times as hour/minute from schedule
+      const [startHour, startMin] = schedule.startTime.split(':').map(Number);
+      const [endHour, endMin] = schedule.endTime.split(':').map(Number);
+
+      const startDateTime = new Date(dayDate);
+      startDateTime.setHours(startHour, startMin, 0, 0);
+
+      const endDateTime = new Date(dayDate);
+      endDateTime.setHours(endHour, endMin, 0, 0);
+
+      let currentSlot = new Date(startDateTime);
+
+      while (currentSlot < endDateTime) {
+        const slotEnd = new Date(currentSlot.getTime() + slotDuration * 60000);
+
+        if (slotEnd > endDateTime) break;
+
+        slotsToInsert.push({
+          doctorId,
+          date: new Date(currentSlot), // Save full datetime
+          startTime: currentSlot.toTimeString().slice(0, 5),
+          endTime: slotEnd.toTimeString().slice(0, 5),
+          isBooked: false
+        });
+
+        currentSlot = slotEnd;
+      }
+    }
+
+    await TimeSlot.insertMany(slotsToInsert);
+
+    res.status(201).json({ message: 'Time slots generated successfully', slots: slotsToInsert.length });
+  } catch (error) {
+    console.error('Error generating time slots:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// Generator function
+export async function generateSlots(schedule) {
+  const { doctorId, days, slotDuration, validFrom, validTo } = schedule;
+
+  // Calculate the list of dates between validFrom and validTo (inclusive)
+  const start = moment(validFrom);
+const end = moment(validTo);
+
+  const dates = [];
+  let current = start.clone();
+  while (current.isSameOrBefore(end)) {
+    dates.push(current.clone());
+    current.add(1, 'day');
+  }
+
+  // Does days array have a `day` property? (If so, match weekdays)
+  const daysHaveDayProperty = days.some(d => d.day !== undefined);
+
+  const allSlots = dates.flatMap(date => {
+    if (daysHaveDayProperty) {
+      const weekday = date.format('dddd'); // E.g. "Monday"
+      const matchingDay = days.find(d => d.day === weekday);
+      if (!matchingDay) return []; // Skip this day
+
+      return buildSlotsForDate(date, matchingDay.startTime, matchingDay.endTime, slotDuration, doctorId);
+    } else {
+      // Use same time for all days
+      const { startTime, endTime } = days[0];
+      return buildSlotsForDate(date, startTime, endTime, slotDuration, doctorId);
+    }
+  });
+
+  // Insert all slots at once
+  if (allSlots.length > 0) {
+    await TimeSlot.insertMany(allSlots);
+  }
+
+  console.log(`✅ Generated ${allSlots.length} slots for doctor ${doctorId}`);
+}
+
+function buildSlotsForDate(dateMoment, startTime, endTime, slotDuration, doctorId) {
+  const slots = [];
+  let start = moment(`${dateMoment.format('YYYY-MM-DD')} ${startTime}`, 'YYYY-MM-DD HH:mm');
+  const end = moment(`${dateMoment.format('YYYY-MM-DD')} ${endTime}`, 'YYYY-MM-DD HH:mm');
+
+  while (start.isBefore(end)) {
+    const slotEnd = start.clone().add(slotDuration, 'minutes');
+    slots.push({
+      doctorId,
+      date: dateMoment.toDate(),
+      startTime: start.format('HH:mm'),
+      endTime: slotEnd.format('HH:mm'),
+      isBooked: false
+    });
+    start = slotEnd;
+  }
+  return slots;
+}
+router.get('/appointments', authMiddleware, async (req, res) => {
+  try {
+    const doctorId = req.user; // or doctor's name if QuickAppointment stores doctor as string name
+
+    const appointments = await QuickAppointment.find({ doctor: doctorId })
+      // adjust populate if needed, or remove it since QuickAppointment doesn't reference patientId
+      .sort({ preferredDate: 1 });
+
+    const formatted = appointments.map(appt => ({
+      id: appt._id,
+      patientName: appt.name,
+      contact: appt.contact,
+      date: appt.preferredDate,
+      time: appt.preferredTime,
+      saveInfo: appt.saveInfo
+    }));
+
+    res.json(formatted);
+  } catch (error) {
+    console.error("Error fetching doctor appointments:", error);
+    res.status(500).json({ error: "Failed to fetch appointments" });
+  }
+});
+// Fetch available time slots
+router.get("/timeslots", async (req, res) => {
+  try {
+    const { doctorId, date } = req.query;
+
+    if (!doctorId || !date) {
+      return res.status(400).json({ error: "Missing doctorId or date" });
+    }
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const slots = await TimeSlot.find({
+      doctorId,
+      date: { $gte: startOfDay, $lte: endOfDay },
+      isBooked: false,
+    });
+
+    res.json(slots);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error fetching slots" });
+  }
+});
+router.get('/:doctorId/schedule', async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(doctorId)) {
+      return res.status(400).json({ error: 'Invalid doctor ID' });
+    }
+
+    const schedules = await DoctorSchedule.find({
+      doctorId: new mongoose.Types.ObjectId(doctorId)
+    });
+
+    res.json(schedules);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+router.put('/api/timeslots/book/:id', async (req, res) => {
+  try {
+    const timeslot = await TimeSlot.findById(req.params.id);
+    if (!timeslot) {
+      return res.status(404).json({ error: "Timeslot not found" });
+    }
+
+    timeslot.isBooked = true;
+    timeslot.bookedBy = req.body.bookedBy;
+    await timeslot.save();
+
+    res.json({ message: "Timeslot booked successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 export default router;
