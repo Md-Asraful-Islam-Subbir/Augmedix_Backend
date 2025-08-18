@@ -5,7 +5,7 @@ import User from "../models/User.js";
 import DoctorSchedule from '../models/DoctorSchedule.js';
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
-
+import authMiddleware from "../middleware/authMiddleware.js";
 const router = express.Router();
 
 // Create quick appointment
@@ -155,13 +155,69 @@ router.put("/appointments/:id/confirm", async (req, res) => {
   }
 });
 
-router.get('/appointments/:id', async (req, res) => {
+router.get('/user-appointments', authMiddleware, async (req, res) => {
   try {
-    const appointment = await QuickAppointment.findById(req.params.id);
-    if (!appointment) return res.status(404).json({ error: "Appointment not found" });
-    res.json(appointment);
+    const userEmail = req.user.email; 
+    console.log(userEmail);
+    const appointments = await QuickAppointment.find({ contact: userEmail });
+
+    if (!appointments.length) {
+      return res.status(404).json({ error: "No appointments found for this user" });
+    }
+
+    res.json(appointments);
   } catch (err) {
+    console.error("Fetch appointments error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
+router.get("/my-appointments", authMiddleware, async (req, res) => {
+  try {
+    // Assuming req.user.name holds the doctor's full name
+    const doctorName = req.user.name;
+
+    const appointments = await QuickAppointment.find({ doctor: doctorName });
+    res.json(appointments);
+  } catch (error) {
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+router.delete("/appointments/:id/decline", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find appointment first
+    const appointment = await QuickAppointment.findById(id);
+    if (!appointment) {
+      return res.status(404).json({ error: "Appointment not found" });
+    }
+
+    // Delete from database
+    await QuickAppointment.findByIdAndDelete(id);
+
+    // Send cancellation email
+    const transporter = nodemailer.createTransport({
+      service: "gmail", // or use your SMTP provider
+      auth: {
+        user: process.env.EMAIL_USER, 
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: appointment.contact,
+      subject: "Appointment Cancelled",
+      text: `Dear ${appointment.name},\n\nWe regret to inform you that your appointment with ${appointment.doctor} scheduled for ${appointment.preferredDate} at ${appointment.preferredTime} has been cancelled.Please Select another preferred time for appointment\n\nRegards,\nClinic Admin`,
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    res.json({ message: "Appointment cancelled and email sent" });
+  } catch (error) {
+    console.error("Decline error:", error);
+    res.status(500).json({ error: "Failed to cancel appointment" });
+  }
+});
+
 export default router;
