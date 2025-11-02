@@ -1,84 +1,68 @@
 import express from "express";
+import Patient from "../models/Patient.js";
 import PatientReport from "../models/PatientReport.js";
 
 const router = express.Router();
 
+// Save or update patient report
 router.post("/", async (req, res) => {
   try {
-    const {
-      patientId,
-      patientName,
-      doctorName,
-      phone,
-      email,
-      age,
-      gender,
-      lastVisit,
-      procedure,
-      image,
-      transcription,
-      audioUrl,
-      notes,
-      history,
-      examFindings,
-      prescriptions,
-      documents,
-      analysisResult
-    } = req.body;
+    const { patientId, notes, history, examFindings, transcription, audioUrl, prescriptions, documents, analysisResult } = req.body;
 
-    const pushFields = {
-      transcription: { $each: Array.isArray(transcription) ? transcription : [transcription] },
-      audioUrl: { $each: Array.isArray(audioUrl) ? audioUrl : [audioUrl] },
-      notes: { $each: Array.isArray(notes) ? notes : [notes] },
-      history: { $each: Array.isArray(history) ? history : [history] },
-      examFindings: { $each: Array.isArray(examFindings) ? examFindings : [examFindings] },
-      prescriptions: { $each: prescriptions || [] },
-      documents: { $each: documents || [] }
-    };
+    const patient = await Patient.findOne({ id: patientId });
+    if (!patient) return res.status(404).json({ error: "Patient not found" });
 
-    // Push new analysisResult if provided
+    const pushFields = {};
+    if (notes) pushFields.notes = Array.isArray(notes) ? notes : [notes];
+    if (history) pushFields.history = Array.isArray(history) ? history : [history];
+    if (examFindings) pushFields.examFindings = Array.isArray(examFindings) ? examFindings : [examFindings];
+    if (transcription) pushFields.transcription = Array.isArray(transcription) ? transcription : [transcription];
+    if (audioUrl) pushFields.audioUrl = Array.isArray(audioUrl) ? audioUrl : [audioUrl];
+    if (prescriptions?.length) pushFields.prescriptions = prescriptions;
+    if (documents?.length) pushFields.documents = documents;
     if (analysisResult?.input && analysisResult?.result) {
-      pushFields.analysisResults = {
+      pushFields.analysisResults = [{
         input: analysisResult.input,
         result: analysisResult.result,
         date: new Date()
-      };
+      }];
     }
 
     const updatedReport = await PatientReport.findOneAndUpdate(
       { patientId },
       {
         $set: {
-          patientName,
-          doctorName,
-          phone,
-          email,
-          age,
-          gender,
-          lastVisit,
-          procedure,
-          image
+          patientName: patient.name,
+          contact: patient.contact,
+          doctorName: patient.doctor,
+          lastVisit: patient.appointmentDate,
+          procedure: "General Consultation",
+          image: patient.image
         },
         $push: pushFields
       },
-      { upsert: true, new: true }
+      { new: true, upsert: true }
     );
 
-    res.status(200).json({ message: "✅ Report updated", report: updatedReport });
+    res.status(200).json({
+      message: "✅ Report successfully updated or created",
+      report: updatedReport
+    });
+
   } catch (error) {
     console.error("❌ Error saving report:", error.message);
     res.status(500).json({ error: "Failed to save report", details: error.message });
   }
 });
 
+// Fetch all reports by patientId
 router.get("/by-patient-id/:id", async (req, res) => {
   try {
-    const patientId = req.params.id;
-    const reports = await PatientReport.find({ patientId }).sort({ timestamp: -1 });
+    const reports = await PatientReport.find({ patientId: req.params.id }).sort({ timestamp: -1 });
     res.json(reports);
   } catch (error) {
     console.error("Error fetching reports by patient ID:", error);
-    res.status(500).json({ error: "Failed to fetch reports by patient ID" });
+    res.status(500).json({ error: "Failed to fetch reports" });
   }
 });
 

@@ -364,5 +364,17 @@ router.put('/api/timeslots/book/:id', async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
-
+// Get logged-in doctor profile
+router.get("/me", authMiddleware, async (req, res) => {
+  try {
+    const doctor = await User.findById(req.user.id).select("-password");
+    if (!doctor || doctor.role !== "Doctor") {
+      return res.status(404).json({ message: "Doctor not found" });
+    }
+    res.json(doctor);
+  } catch (error) {
+    console.error("Error fetching doctor profile:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 export default router;

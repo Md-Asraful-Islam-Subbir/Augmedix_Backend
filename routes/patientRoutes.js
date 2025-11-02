@@ -1,10 +1,26 @@
 import express from "express";
 import Patient from "../models/Patient.js";
 import axios from "axios";
+import fs from "fs";
+import FormData from "form-data";
+import multer from "multer";
 import dotenv from 'dotenv';
 import authMiddleware from '../middleware/authMiddleware.js';
 import QuickAppointment from '../models/QuickAppointment.js'; 
 dotenv.config();
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/'); // Folder to save files (create if doesn't exist)
+  },
+  filename: (req, file, cb) => {
+    // Give each file a unique name
+    const uniqueName = Date.now() + '-' + file.originalname;
+    cb(null, uniqueName);
+  }
+});
+
+// Initialize multer with storage
+const upload = multer({ storage });
 const router = express.Router();
 
 router.post('/add/:appointmentId', authMiddleware, async (req, res) => {
@@ -75,54 +91,54 @@ router.get("/patients", async (req, res) => {
 /**
  * Upload or verify patient image
  */
-router.post("/patients/:id/uploadImage", async (req, res) => {
-  const { id } = req.params;
-  const { image } = req.body;
-
-  if (!image) {
-    return res.status(400).json({ message: "Image is required" });
-  }
-
+router.post("/:id/uploadImage", upload.single("image"), async (req, res) => {
   try {
-    const patient = await Patient.findById(id);
-    if (!patient) return res.status(404).json({ message: "Patient not found" });
+    const patientId = req.params.id;
 
-    const pythonServerURL = "http://127.0.0.1:3000/api/face-recognition";
-    const response = await axios.post(
-      pythonServerURL,
-      { image, patientId: id },
-      { headers: { "Content-Type": "application/json" } }
-    );
+    // Send image to FastAPI
+    const formData = new FormData();
+    formData.append("patient_id", patientId);
+    formData.append("image", fs.createReadStream(req.file.path));
+console.log("Uploading image for patient ID:", patientId)
+    const response = await axios.post("http://192.168.0.103:8000/search_patient/", formData, {
+      headers: formData.getHeaders()
+    });
 
-    if (response.data.match) {
-      return res.json({
-        message: "Patient recognized",
-        patient: response.data,
-      });
+    const data = response.data;
+console.log("Response from FastAPI:", data);
+    if (data.match) {
+      // If match found, return patient ID from CLIP
+      return res.json({ match: true, patient_id: data.patient_id, score: data.score });
     } else {
-      patient.image = image;
-      await patient.save();
+      // Otherwise, save image for this patient
 
-      return res.json({
-        message: "New patient added, image saved",
-        image,
-      });
+      await Patient.findByIdAndUpdate(patientId, { image: req.file.filename });
+      return res.json({ match: false, message: "Image uploaded successfully" });
     }
-  } catch (error) {
-    console.error("Error processing image:", error);
-    return res.status(500).json({ message: "Server error", error: error.message });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
-
 /**
- * Delete patient
+ * Delete patient by doctor 
  */
-router.delete("/patients/:id", authMiddleware,async (req, res) => {
-  const { id } = req.params;
+router.delete("/", authMiddleware, async (req, res) => {
+  const { name, contact, doctor, appointmentDate, appointmentTime } = req.body;
 
   try {
-    const patient = await Patient.findByIdAndDelete(id);
-    if (!patient) return res.status(404).json({ message: "Patient not found" });
+    const patient = await Patient.findOneAndDelete({
+      name,
+      contact,
+      doctor,
+      appointmentDate,
+      appointmentTime,
+    });
+
+    if (!patient) {
+      return res.status(404).json({ message: "Patient not found with given details" });
+    }
 
     res.json({ message: "Patient removed successfully!" });
   } catch (error) {
@@ -130,4 +146,6 @@ router.delete("/patients/:id", authMiddleware,async (req, res) => {
     res.status(500).json({ message: "Failed to delete patient." });
   }
 });
+
+
 export default router;
