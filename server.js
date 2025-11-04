@@ -52,7 +52,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/doctor", doctorRoutes);
 app.use("/api/patients", patientRoutes);
 app.use("/api/gpt", gptRoute);
-app.use("/api/reports", reportRoutes);
+app.use("/api/report", reportRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/appointments", appointments);
 // Test Route

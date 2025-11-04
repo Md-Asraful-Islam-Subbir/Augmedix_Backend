@@ -135,8 +135,16 @@ router.put("/appointments/:id/confirm", async (req, res) => {
         <h3>Appointment Confirmed</h3>
         <p>Hello ${user.name},</p>
         <p>Your appointment with <strong>Dr. ${doctor.name}</strong> has been confirmed.</p>
-        <p><strong>Date:</strong> ${appointment.preferredDate}</p>
-        <p><strong>Time:</strong> ${appointment.preferredTime}</p>
+        <p><strong>Date:</strong> ${new Date(appointment.preferredDate).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })}</p>
+  <p><strong>Time:</strong> ${new Date(`1970-01-01T${appointment.preferredTime}`).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      })}</p>
         <p><strong>Status:</strong> Confirmed</p>
         <p>Thank you for using our service.</p>
       `,
@@ -157,7 +165,7 @@ router.put("/appointments/:id/confirm", async (req, res) => {
 
 router.get('/user-appointments', authMiddleware, async (req, res) => {
   try {
-    const userEmail = req.user.email; 
+    const userEmail = req.user.email;
     console.log(userEmail);
     const appointments = await QuickAppointment.find({ contact: userEmail });
 
@@ -199,7 +207,7 @@ router.delete("/appointments/:id/decline", async (req, res) => {
     const transporter = nodemailer.createTransport({
       service: "gmail", // or use your SMTP provider
       auth: {
-        user: process.env.EMAIL_USER, 
+        user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
     });

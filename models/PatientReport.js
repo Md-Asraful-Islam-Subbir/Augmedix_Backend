@@ -1,13 +1,29 @@
 import mongoose from "mongoose";
 
+const audioSchema = new mongoose.Schema({
+  name: String,
+  url: String,
+  type: String,
+  date: { type: Date, default: Date.now }
+});
+const historyEntrySchema = new mongoose.Schema({
+  text: String,
+  date: { type: Date, default: Date.now },
+});
+
+const examFindingSchema = new mongoose.Schema({
+  finding: String,
+  date: { type: Date, default: Date.now },
+});
+
 const documentSchema = new mongoose.Schema({
   name: String,
   type: String,
   size: String,
   date: String,
   url: String,
-  filePath: String, // For filesystem storage
-  fileData: Buffer, // For database storage
+  filePath: String,
+  fileData: Buffer,
   mimetype: String
 });
 
@@ -26,7 +42,7 @@ const analysisResultSchema = new mongoose.Schema({
 });
 
 const patientReportSchema = new mongoose.Schema({
-  patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true },
+  patientId: { type: String, required: true },
   patientName: String,
   doctorName: String,
   contact: String,
@@ -35,19 +51,17 @@ const patientReportSchema = new mongoose.Schema({
   image: String,
 
   notes: [String],
-  history: [String],
+  history: [historyEntrySchema],
   transcription: [String],
-  audioUrl: [String],
-  examFindings: [String],
+  examFindings: [examFindingSchema],
 
-  analysisResults: [analysisResultSchema], // Store analysis history
-
+  audioUrl: [audioSchema],
   documents: [documentSchema],
   prescriptions: [prescriptionSchema],
+  analysisResults: [analysisResultSchema],
 
   timestamp: { type: Date, default: Date.now }
 });
 
-const PatientReport = mongoose.model('PatientReport', patientReportSchema);
-
+const PatientReport = mongoose.model("PatientReport", patientReportSchema);
 export default PatientReport;
